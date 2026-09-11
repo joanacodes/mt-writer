@@ -17,8 +17,9 @@ export async function POST() {
   const lines = missing.map((r) => r.origin === 'en'
     ? `id=${r.id} | need: FRENCH | english title: ${r.title_en} | keyword: ${r.keyword_en} | category: ${r.category}`
     : `id=${r.id} | need: ENGLISH | french title: ${r.title_fr} | keyword: ${r.keyword_fr} | category: ${r.category}`);
-  const r = await callText({ provider: st.provider, model: st.model, system: [{ type: 'text', text: prompt }], user: lines.join('\n'), maxTokens: 8000 });
-  await record({ kind: 'prepare', provider: st.provider, model: st.model, usage: normalise(st.provider, r.usage) });
+  const cheap = st.cheap_model && st.cheap_model !== 'none' ? st.cheap_model : st.model; const prov = cheap.startsWith('claude') ? 'anthropic' : cheap.startsWith('gpt') ? 'openai' : cheap.startsWith('gemini') ? 'google' : st.provider;
+  const r = await callText({ provider: prov, model: cheap, system: [{ type: 'text', text: prompt }], user: lines.join('\n'), maxTokens: 8000 });
+  await record({ kind: 'prepare', provider: prov, model: cheap, usage: normalise(prov, r.usage) });
   const m = /\[[\s\S]*\]/.exec(r.text);
   const items = m ? JSON.parse(m[0]) : [];
   const used = new Set((all || []).flatMap((x) => [x.path_en, x.path_fr]).filter(Boolean));

@@ -21,3 +21,4 @@ export async function putFile(path, contentB64, message) {
   return r.json();
 }
 export const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
+export const safeSlug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 80);

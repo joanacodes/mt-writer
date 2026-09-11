@@ -3,7 +3,9 @@ import { batchStatus, batchResults, callImage } from '@/lib/providers';
 import { allowedPaths, stripFences, frontMatter } from '@/lib/prompt';
 import { validate } from '@/lib/validate';
 import { record, normalise } from '@/lib/cost';
+import { finish } from '@/lib/finish';
 import { submitBatchFor } from '@/lib/batch';
+import { cronAllowed, unauthorized } from '@/lib/auth';
 
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
@@ -12,7 +14,8 @@ export const dynamic = 'force-dynamic';
    1. collects finished batches and stores the articles;
    2. if a batch was chained, submits the next step (FR batch, or covers);
    3. generates a few queued covers. */
-export async function GET() {
+export async function GET(req) {
+  if (!cronAllowed(req)) return unauthorized();
   const { data: jobs } = await db.from('jobs').select('*').in('status', ['submitted', 'in_progress']);
   const paths = await allowedPaths();
   const st = await settings();
@@ -36,8 +39,12 @@ export async function GET() {
         continue;
       }
       await record({ plan_id: row.id, lang: item.lang, kind: 'text_batch', provider: 'anthropic', model: r.result.message.model || job.note, usage: normalise('anthropic', r.result.message.usage), batch: true });
-      const text = stripFences(r.result.message.content.filter((b) => b.type === 'text').map((b) => b.text).join(''));
-      const { problems, words } = validate(text, row, item.lang, paths);
+      let enFm = null;
+      if (item.lang === 'fr') { const { data: enA } = await db.from('articles').select('body').eq('plan_id', row.id).eq('lang', 'en').maybeSingle(); enFm = enA ? frontMatter(enA.body)[0] : null; }
+      const fin = finish(stripFences(r.result.message.content.filter((b) => b.type === 'text').map((b) => b.text).join('')), row, item.lang, paths, enFm);
+      const text = fin.text;
+      let { problems, words } = validate(text, row, item.lang, paths);
+      if (r.result.message.stop_reason === 'max_tokens') problems.push('output cut at the token ceiling');
       await db.from('articles').upsert({ plan_id: row.id, lang: item.lang, slug: item.lang === 'en' ? row.slug_en : row.slug_fr, body: text, words, warnings: problems.join('; '), edited: false, updated_at: new Date().toISOString() });
       await db.from('plan').update({ [`status_${item.lang}`]: problems.length ? 'check' : 'written' }).eq('id', row.id);
       landed.push(row.id); stored++;

@@ -36,3 +36,19 @@ export async function articleCost(plan_id) {
   const { data } = await db.from('usage').select('cost_usd').eq('plan_id', plan_id);
   return (data || []).reduce((a, r) => a + Number(r.cost_usd || 0), 0);
 }
+
+/** Average cost of the last N calls of a kind (text/en, text/fr, image), for estimates. */
+export async function averages() {
+  const { data } = await db.from('usage').select('kind,lang,cost_usd').order('id', { ascending: false }).limit(200);
+  const g = {};
+  for (const r of data || []) { const k = r.kind === 'image' ? 'image' : `${r.kind}/${r.lang}`; (g[k] = g[k] || []).push(Number(r.cost_usd)); }
+  const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+  return { en: avg(g['text/en'] || []) ?? 0.10, fr: avg(g['text/fr'] || []) ?? 0.10, batch_en: avg(g['text_batch/en'] || []) ?? 0.05, batch_fr: avg(g['text_batch/fr'] || []) ?? 0.05, image: avg(g['image'] || []) ?? 0.04 };
+}
+export async function overCap() {
+  const { data } = await db.from('settings').select('value').eq('key', 'daily_cap_usd').maybeSingle();
+  const cap = Number(data?.value || 0);
+  if (!cap) return false;
+  const t = await totals();
+  return t.today >= cap ? cap : false;
+}

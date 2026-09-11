@@ -16,6 +16,8 @@ export function validate(text, row, lang, paths) {
   if (words < target * 0.75 || words > target * 1.35) problems.push(`length ${words} vs ${target}`);
   const allowed = lang === 'en' ? paths.en : paths.fr;
   for (const [, p] of body.matchAll(/\]\((\/[^)#\s]*)(?:#[^)]*)?\)/g)) if (!allowed.has(p)) problems.push('link not allowed: ' + p);
+  const nLinks = [...body.matchAll(/\]\(\//g)].length;
+  if (nLinks < 2) problems.push(`only ${nLinks} internal link(s)`);
   for (const re of BANNED) if (re.test(body)) problems.push('banned word: ' + re.source);
   if (lang === 'fr' && /lentille/i.test(body)) problems.push("'lentille' used");
   if (/\bthe House\b/.test(body)) problems.push("'the House' used — say Maison Tarot");

@@ -7,7 +7,11 @@ export function frontMatter(text) {
   let key = null;
   for (const line of m[1].split('\n')) {
     const kv = /^([A-Za-z_]+):\s*(.*)$/.exec(line);
-    if (kv) { key = kv[1]; fm[key] = kv[2].replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1'); }
+    if (kv) {
+      key = kv[1]; const raw = kv[2].trim();
+      if (/^\[.*\]$/.test(raw)) { try { fm[key] = JSON.parse(raw.replace(/'/g, '"')); } catch { fm[key] = raw.slice(1, -1).split(',').map((s) => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean); } }
+      else fm[key] = raw.replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1').replace(/\\"/g, '"');
+    }
     else if (key && /^\s*-\s+/.test(line)) { fm[key] = Array.isArray(fm[key]) ? fm[key] : []; fm[key].push(line.replace(/^\s*-\s+/, '').replace(/^"(.*)"$/, '$1')); }
   }
   return [fm, m[2]];

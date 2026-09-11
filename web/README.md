@@ -37,7 +37,7 @@ That loads the plan, the style guide, the brand book, the facts, the examples, t
 github.com → Settings → Developer settings → **Fine-grained tokens** → new token, repository access limited to `maison-tarot`, permission **Contents: read and write**. Copy it.
 
 ### 4. Vercel
-Import this repository. Add the environment variables from `.env.example` — Supabase URL and service key, `APP_PASSWORD` (choose a long one), `AUTH_SECRET` (any long random string), your model API keys, and the four GitHub values. Deploy.
+Import this repository, **Root Directory: `web`**. Add the environment variables from `.env.example` — Supabase URL and service key, `APP_PASSWORD` (choose a long one), `AUTH_SECRET` (any long random string), your model API keys, and the four GitHub values. Deploy.
 
 Open the URL on your phone, enter the password, and add it to your home screen.
 
@@ -48,10 +48,26 @@ Open the URL on your phone, enter the password, and add it to your home screen.
 Select rows, tap **Overnight ½**, close the laptop. The English goes to Anthropic's batch queue; when it lands, the French batch is submitted automatically; when that lands, the covers are queued and generated a few at a time. All of it is driven by `/api/cron`, so it only runs while something calls that route: set the Supabase schedule (every 10 minutes) once and the whole chain works with the phone off.
 
 ```sql
--- Supabase → Database → Extensions: enable pg_cron and pg_net. Then, with your real URL:
+-- Supabase → Database → Extensions: enable pg_cron and pg_net. Then, with your real URL and your CRON_SECRET:
 select cron.schedule('mt-writer-poll', '*/10 * * * *',
-  $$ select net.http_get(url := 'https://YOUR-APP.vercel.app/api/cron'); $$);
+  $$ select net.http_get(url := 'https://YOUR-APP.vercel.app/api/cron?key=YOUR_CRON_SECRET'); $$);
 ```
+The `key` is required: without it the route answers 401, so nobody else can trigger your covers.
+
+## Where the money goes, and how the app keeps it low
+
+- **No extended thinking while writing.** Reasoning tokens are the most expensive kind and add nothing to an article; they also ate the output ceiling and truncated drafts. Off, with a 16k ceiling for the text itself.
+- **Prompt caching.** The style guide, facts, brand book excerpt, example and the list of allowed links are sent as two cached blocks; after the first call in a five-minute window they cost a tenth. Each log line shows `in · cached · written-to-cache · out` so you can see the cache working.
+- **The app fixes what it can for free.** `translationKey`, `type`, `date`, `image`, the category in the right language, tags, and links to pages that don't exist are corrected after the model answers — never by asking it again.
+- **One second attempt, only when it's worth it** (a short or truncated draft), and it expands the draft rather than starting over. Everything else is accepted with a warning you can read.
+- **Batch for volume**: half price, no timeouts. Overnight chains English → French → covers.
+- **A cheap model for the small jobs** (title preparation), set in Settings.
+- **A daily cap**, in Settings, default $25: writing stops when it's reached.
+- **Estimates before you commit**: the Write menu shows ≈ cost for the selection, from your own recent average.
+
+## Security
+
+One password, checked in constant time, eight attempts per quarter hour; a signed cookie that expires after ninety days and contains no password material. Every API route checks it. The cron route accepts either the cookie or `CRON_SECRET`. The service key and model keys are server-only. Publishing writes only to `content/en/blog`, `content/fr/blog` and `assets/covers`, with slugs sanitised. Pages carry `noindex` and `X-Frame-Options: DENY`.
 
 ## Notes on the plumbing
 
