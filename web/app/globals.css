@@ -37,3 +37,13 @@ input[type=search],select{border:1px solid var(--g2);border-radius:999px;padding
 .card{border:1px solid var(--g2);border-radius:14px;padding:1.4rem;max-width:22rem;width:100%}
 h1{font:500 1.6rem/1.1 var(--d);letter-spacing:-.02em;margin:0 0 .6rem}
 .muted{color:var(--muted)}
+
+/* working: a gold border that travels around the button */
+.actions button.working{position:relative;background:var(--ink);color:#fff;border-color:transparent;isolation:isolate}
+.actions button.working::before{content:'';position:absolute;inset:-2px;border-radius:999px;padding:2px;
+  background:conic-gradient(from var(--a,0deg),transparent 0 62%,var(--gold) 82%,#e8d6a8 90%,transparent 100%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;
+  animation:spin 1.4s linear infinite;z-index:-1}
+@property --a{syntax:'<angle>';inherits:false;initial-value:0deg}
+@keyframes spin{to{--a:360deg}}
+@media (prefers-reduced-motion:reduce){.actions button.working::before{animation:none;background:var(--gold)}}

@@ -118,7 +118,7 @@ export default function Writer() {
       </div>
 
       <div className="actions">
-        <button className="solid" disabled={!!busy} onClick={() => post('/api/generate', { ids: ids(), en: true, fr: true }, 'both', 2)}>{busy ? (progress || '…') : `Write${sel.size ? ' ' + sel.size : ''}`}</button>
+        <button className={busy ? "solid working" : "solid"} disabled={!!busy} onClick={() => post('/api/generate', { ids: ids(), en: true, fr: true }, 'both', 2)}>{busy ? (progress || '…') : `Write${sel.size ? ' ' + sel.size : ''}`}</button>
         <button disabled={!!busy} onClick={() => post('/api/generate', { ids: ids(), en: true, fr: false }, 'en', 3)}>EN</button>
         <button disabled={!!busy} onClick={() => post('/api/generate', { ids: ids(), en: false, fr: true }, 'fr', 3)}>FR</button>
         <button className="gold" disabled={!!busy} onClick={() => post('/api/batch', { ids: ids(), mode: 'en' }, 'batch', 0)}>Batch EN ½</button>
