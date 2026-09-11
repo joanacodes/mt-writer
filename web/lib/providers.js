@@ -12,16 +12,34 @@ export const IMAGE_MODELS = {
 
 const A_VERSION = '2023-06-01';
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/* Retries on overload (529), rate limit (429) and server errors, with growing pauses. */
+async function withRetry(fn, tries = 4) {
+  let last;
+  for (let i = 0; i < tries; i++) {
+    try { return await fn(); }
+    catch (e) {
+      last = e;
+      const retryable = /overloaded|rate.?limit|529|429|5\d\d|ECONNRESET|fetch failed/i.test(e.message || '');
+      if (!retryable || i === tries - 1) throw e;
+      await sleep([3000, 8000, 20000][i] || 20000);
+    }
+  }
+  throw last;
+}
+
 export async function callText({ provider, model, system, user, maxTokens = 6000 }) {
   if (provider === 'anthropic') {
-    const r = await fetch(`${process.env.MT_TEST_BASE || 'https://api.anthropic.com'}/v1/messages`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': A_VERSION },
-      body: JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: 'user', content: user }] }),
+    return withRetry(async () => {
+      const r = await fetch(`${process.env.MT_TEST_BASE || 'https://api.anthropic.com'}/v1/messages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': A_VERSION },
+        body: JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: 'user', content: user }] }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error((j.error?.message || JSON.stringify(j).slice(0, 300)) + ` (${r.status})`);
+      return { text: j.content.filter((b) => b.type === 'text').map((b) => b.text).join(''), usage: j.usage };
     });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error?.message || JSON.stringify(j).slice(0, 300));
-    return { text: j.content.filter((b) => b.type === 'text').map((b) => b.text).join(''), usage: j.usage };
   }
   const sysText = Array.isArray(system) ? system.map((b) => b.text).join('\n\n') : system;
   if (provider === 'openai') {
