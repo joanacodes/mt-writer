@@ -5,7 +5,8 @@ html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);font:15px/
 a{color:inherit}
 .wrap{max-width:52rem;margin:0 auto;padding:0 1rem}
 header.top{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.9);backdrop-filter:blur(12px);border-bottom:1px solid var(--g2)}
-.bar{display:flex;gap:.5rem;align-items:center;padding:.7rem 1rem;flex-wrap:wrap}
+.bar{display:flex;gap:.5rem;align-items:center;padding:.7rem 1rem;flex-wrap:nowrap}
+.bar input[type=search]{flex:1 1 6rem;min-width:6rem}.bar select{flex:0 1 8rem;min-width:5rem;text-overflow:ellipsis}
 .brand{font:500 .85rem var(--d);letter-spacing:.16em}
 button,select,input,textarea{font:inherit;color:inherit}
 button{border:1px solid var(--ink);background:#fff;border-radius:999px;padding:.42em 1em;cursor:pointer}
@@ -23,7 +24,9 @@ input[type=search],select{border:1px solid var(--g2);border-radius:999px;padding
 .dot b{width:.5rem;height:.5rem;border-radius:999px;background:var(--g2);display:inline-block}
 .dot.written b{background:var(--green)}.dot.check b{background:var(--red)}.dot.queued b{background:var(--gold)}
 .note{width:100%;margin-top:.5rem;border:1px solid var(--g2);border-radius:8px;padding:.45em .6em;font:13px var(--b);min-height:2.2em;resize:vertical}
-.actions{position:sticky;bottom:0;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-top:1px solid var(--g2);padding:.6rem 1rem calc(.6rem + env(safe-area-inset-bottom));display:flex;gap:.5rem;overflow-x:auto;z-index:20}
+.actions{position:sticky;bottom:0;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-top:1px solid var(--g2);padding:.55rem .8rem calc(.55rem + env(safe-area-inset-bottom));display:flex;gap:.4rem;overflow-x:auto;scrollbar-width:none;z-index:20}
+.actions::-webkit-scrollbar{display:none}
+.actions button{flex:none;white-space:nowrap;padding:.5em .9em;font-size:13px;line-height:1.2}
 .log{font:11px var(--m);color:var(--muted);padding:1rem;background:var(--g1);border-top:1px solid var(--g2);white-space:pre-wrap}
 .sheet{position:fixed;inset:0;background:#fff;z-index:40;overflow:auto;padding-bottom:5rem}
 .sheet header{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--g2);padding:.7rem 1rem;display:flex;gap:.5rem;align-items:center}

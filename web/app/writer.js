@@ -96,10 +96,10 @@ export default function Writer() {
       </div>
 
       <div className="actions">
-        <button className="solid" disabled={!!busy} onClick={() => post('/api/generate', { ids: ids(), en: true, fr: true }, 'both')}>{busy === 'both' ? '…' : `Write ${sel.size || ''} EN+FR`}</button>
+        <button className="solid" disabled={!!busy} onClick={() => post('/api/generate', { ids: ids(), en: true, fr: true }, 'both')}>{busy === 'both' ? '…' : `Write${sel.size ? ' ' + sel.size : ''}`}</button>
         <button disabled={!!busy} onClick={() => post('/api/generate', { ids: ids(), en: true, fr: false }, 'en')}>EN</button>
         <button disabled={!!busy} onClick={() => post('/api/generate', { ids: ids(), en: false, fr: true }, 'fr')}>FR</button>
-        <button className="gold" disabled={!!busy} onClick={() => post('/api/batch', { ids: ids() }, 'batch')}>Batch EN (½ price)</button>
+        <button className="gold" disabled={!!busy} onClick={() => post('/api/batch', { ids: ids() }, 'batch')}>Batch ½</button>
         <button className="gold" disabled={!!busy} onClick={() => post('/api/covers', { ids: ids() }, 'covers')}>Covers</button>
         <button disabled={!!busy} onClick={() => { if (confirm(`Publish ${sel.size} article(s) to the site repo?`)) post('/api/publish', { ids: ids() }, 'publish'); }}>Publish</button>
       </div>
