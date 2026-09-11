@@ -34,13 +34,33 @@ export default function Writer() {
   const toggle = (id) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const selectAll = (on) => setSel((s) => { const n = new Set(s); shown.forEach((r) => (on ? n.add(r.id) : n.delete(r.id))); return n; });
 
-  async function post(url, body, label) {
-    if (!sel.size && url !== '/api/cron') return alert('Select at least one article.');
+  const [progress, setProgress] = useState('');
+  /* Live actions run a few rows per request so Vercel's time limit is never hit; the loop is here, in the phone. */
+  async function post(url, body, label, chunk = 3) {
+    const all = body.ids || [];
+    if (!all.length && !body.all) return alert('Select at least one article.');
     setBusy(label);
-    const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    const j = await r.json().catch(() => ({}));
-    if (j.error) alert(j.error);
-    setBusy(''); loadPlan();
+    if (!chunk) {
+      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const j = await r.json().catch(() => ({})); if (j.error) alert(j.error);
+    } else {
+      for (let i = 0; i < all.length; i += chunk) {
+        setProgress(`${Math.min(i + chunk, all.length)}/${all.length}`);
+        const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, ids: all.slice(i, i + chunk) }) });
+        const j = await r.json().catch(() => ({})); if (j.error) { alert(j.error); break; }
+        loadPlan();
+      }
+    }
+    setProgress(''); setBusy(''); loadPlan(); fetch('/api/settings').then((r) => r.json()).then(setSettings);
+  }
+  async function prepare() {
+    setBusy('prepare');
+    for (let i = 0; i < 20; i++) {
+      const j = await (await fetch('/api/prepare', { method: 'POST' })).json();
+      setProgress(`${j.remaining ?? '?'} left`);
+      if (!j.remaining) break;
+    }
+    setProgress(''); setBusy(''); loadPlan();
   }
   const ids = () => [...sel];
 
@@ -58,6 +78,8 @@ export default function Writer() {
           ))}
           <button className="chip" onClick={() => selectAll(true)}>select all ({shown.length})</button>
           <button className="chip" onClick={() => setSel(new Set())}>none</button>
+          <button className="chip" onClick={prepare} disabled={!!busy}>prepare titles</button>
+          {settings?.spend && <span className="chip" title={`${settings.spend.calls} calls`}>${settings.spend.today.toFixed(2)} today · ${settings.spend.total.toFixed(2)} total</span>}
           {settings && (
             <select className="chip" value={`${settings.provider}|${settings.model}`} onChange={async (e) => {
               const [provider, model] = e.target.value.split('|');
@@ -96,12 +118,13 @@ export default function Writer() {
       </div>
 
       <div className="actions">
-        <button className="solid" disabled={!!busy} onClick={() => post('/api/generate', { ids: ids(), en: true, fr: true }, 'both')}>{busy === 'both' ? '…' : `Write${sel.size ? ' ' + sel.size : ''}`}</button>
-        <button disabled={!!busy} onClick={() => post('/api/generate', { ids: ids(), en: true, fr: false }, 'en')}>EN</button>
-        <button disabled={!!busy} onClick={() => post('/api/generate', { ids: ids(), en: false, fr: true }, 'fr')}>FR</button>
-        <button className="gold" disabled={!!busy} onClick={() => post('/api/batch', { ids: ids() }, 'batch')}>Batch ½</button>
-        <button className="gold" disabled={!!busy} onClick={() => post('/api/covers', { ids: ids() }, 'covers')}>Covers</button>
-        <button disabled={!!busy} onClick={() => { if (confirm(`Publish ${sel.size} article(s) to the site repo?`)) post('/api/publish', { ids: ids() }, 'publish'); }}>Publish</button>
+        <button className="solid" disabled={!!busy} onClick={() => post('/api/generate', { ids: ids(), en: true, fr: true }, 'both', 2)}>{busy ? (progress || '…') : `Write${sel.size ? ' ' + sel.size : ''}`}</button>
+        <button disabled={!!busy} onClick={() => post('/api/generate', { ids: ids(), en: true, fr: false }, 'en', 3)}>EN</button>
+        <button disabled={!!busy} onClick={() => post('/api/generate', { ids: ids(), en: false, fr: true }, 'fr', 3)}>FR</button>
+        <button className="gold" disabled={!!busy} onClick={() => post('/api/batch', { ids: ids(), mode: 'en' }, 'batch', 0)}>Batch EN ½</button>
+        <button className="gold" disabled={!!busy} onClick={() => post('/api/batch', { ids: ids(), mode: 'fr' }, 'batchfr', 0)}>Batch FR ½</button>
+        <button className="gold" disabled={!!busy} onClick={() => post('/api/covers', { ids: ids() }, 'covers', 4)}>Covers</button>
+        <button disabled={!!busy} onClick={() => { if (confirm(`Publish ${sel.size} article(s) to the site repo?`)) post('/api/publish', { ids: ids() }, 'publish', 5); }}>Publish</button>
       </div>
 
       {open && <Sheet row={open} close={() => { setOpen(null); loadPlan(); }} />}
@@ -134,7 +157,7 @@ function Sheet({ row, close }) {
       {art?.warnings && <p style={{ color: '#c0392b', font: '12px DM Mono, monospace', padding: '0 1rem' }}>⚠ {art.warnings}</p>}
       {!art && <p className="muted" style={{ padding: '0 1rem' }}>Not written yet.</p>}
       {art && (edit ? <textarea value={body} onChange={(e) => setBody(e.target.value)} /> : <pre>{art.body}</pre>)}
-      {data?.cover && <p className="muted" style={{ padding: '1rem', font: '12px DM Mono, monospace' }}>cover ready{data.cover.published_at ? ' · published' : ''}</p>}
+      <p className="muted" style={{ padding: '1rem', font: '12px DM Mono, monospace' }}>{data?.cover ? `cover ready${data.cover.published_at ? ' · published' : ''} · ` : ''}{data ? `cost so far $${Number(data.cost || 0).toFixed(3)}` : ''}</p>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { isAuthed, unauthorized } from '@/lib/auth';
 import { callText } from '@/lib/providers';
 import { allowedPaths, systemFor, userEn, userFr, stripFences } from '@/lib/prompt';
 import { validate } from '@/lib/validate';
+import { record, normalise } from '@/lib/cost';
 
 export const maxDuration = 300;
 
@@ -10,18 +11,22 @@ async function writeOne(row, lang, paths, st, enBody) {
   const today = new Date().toISOString().slice(0, 10);
   const system = await systemFor(lang, paths);
   const user = lang === 'en' ? userEn(row, today) : userFr(row, enBody, paths, today);
-  let text = stripFences(await callText({ provider: st.provider, model: st.model, system, user }));
+  let r = await callText({ provider: st.provider, model: st.model, system, user });
+  let cost = await record({ plan_id: row.id, lang, kind: 'text', provider: st.provider, model: st.model, usage: normalise(st.provider, r.usage) });
+  let text = stripFences(r.text);
   let { problems, words } = validate(text, row, lang, paths);
   if (problems.length) {
     const retryRow = { ...row, notes: `${row.notes || ''} | FIX: ${problems.join('; ')}` };
     const retryUser = lang === 'en' ? userEn(retryRow, today) : userFr(retryRow, enBody, paths, today);
-    text = stripFences(await callText({ provider: st.provider, model: st.model, system, user: retryUser }));
+    r = await callText({ provider: st.provider, model: st.model, system, user: retryUser });
+    cost += await record({ plan_id: row.id, lang, kind: 'text', provider: st.provider, model: st.model, usage: normalise(st.provider, r.usage) });
+    text = stripFences(r.text);
     ({ problems, words } = validate(text, row, lang, paths));
   }
   const slug = lang === 'en' ? row.slug_en : row.slug_fr;
   await db.from('articles').upsert({ plan_id: row.id, lang, slug, body: text, words, warnings: problems.join('; '), edited: false, updated_at: new Date().toISOString() });
   await db.from('plan').update({ [`status_${lang}`]: problems.length ? 'check' : 'written' }).eq('id', row.id);
-  await log(`${row.id} ${lang.toUpperCase()}: ${words} words${problems.length ? ' ⚠ ' + problems.join('; ') : ''}`);
+  await log(`${row.id} ${lang.toUpperCase()}: ${words} words · $${cost.toFixed(3)}${problems.length ? ' ⚠ ' + problems.join('; ') : ''}`);
   return text;
 }
 

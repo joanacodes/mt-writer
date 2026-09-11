@@ -2,6 +2,7 @@ import { db, log, settings, doc } from '@/lib/db';
 import { isAuthed, unauthorized } from '@/lib/auth';
 import { callImage } from '@/lib/providers';
 import { frontMatter } from '@/lib/prompt';
+import { record } from '@/lib/cost';
 
 export const maxDuration = 300;
 
@@ -25,7 +26,8 @@ export async function POST(req) {
       const b64 = await callImage({ provider: st.image_provider, model: st.image_model, prompt, referenceB64: reference || null });
       await db.from('covers').upsert({ plan_id: id, slug: row.slug_en, mime: 'image/jpeg', data: b64, prompt, published_at: null });
       await db.from('plan').update({ cover: 'done' }).eq('id', id);
-      await log(`${id}: cover generated`);
+      const cost = await record({ plan_id: id, kind: 'image', provider: st.image_provider, model: st.image_model, image: true });
+      await log(`${id}: cover generated · $${cost.toFixed(3)}`);
       done.push(id);
     } catch (e) { await log(`${id}: cover ERROR ${e.message}`); }
   }

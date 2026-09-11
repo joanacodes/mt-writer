@@ -21,7 +21,7 @@ export async function callText({ provider, model, system, user, maxTokens = 6000
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error?.message || JSON.stringify(j).slice(0, 300));
-    return j.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
+    return { text: j.content.filter((b) => b.type === 'text').map((b) => b.text).join(''), usage: j.usage };
   }
   const sysText = Array.isArray(system) ? system.map((b) => b.text).join('\n\n') : system;
   if (provider === 'openai') {
@@ -32,7 +32,7 @@ export async function callText({ provider, model, system, user, maxTokens = 6000
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error?.message || 'openai error');
-    return j.choices[0].message.content;
+    return { text: j.choices[0].message.content, usage: j.usage };
   }
   if (provider === 'google') {
     const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
@@ -42,7 +42,7 @@ export async function callText({ provider, model, system, user, maxTokens = 6000
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error?.message || 'google error');
-    return (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
+    return { text: (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join(''), usage: j.usageMetadata };
   }
   throw new Error('unknown provider ' + provider);
 }

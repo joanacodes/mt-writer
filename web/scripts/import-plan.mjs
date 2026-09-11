@@ -51,6 +51,7 @@ const docs = {
   system_en: read(path.join(SRC, 'prompts/system_en.md')),
   system_fr: read(path.join(SRC, 'prompts/system_fr.md')),
   image_style: read(path.join(SRC, 'prompts/image_style.md')),
+  prepare_titles: read(path.join(SRC, 'prompts/prepare_titles.md')),
   facts: read(path.join(SRC, 'notes/facts.md')),
   'brand-book': read(path.join(SRC, 'notes/brand-book.md')),
   example_en_1: read(path.join(SRC, 'notes/example_en_1.md')),
