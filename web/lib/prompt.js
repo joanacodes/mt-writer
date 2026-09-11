@@ -23,11 +23,12 @@ export const stripFences = (t) => {
 const CAT_FR = { Learn: 'Apprendre', Practice: 'Tirages', 'Ideas we refuse': 'Idées reçues', Trends: 'Tendances', 'Astrology, tested': 'Astrologie testée', 'Lenses & adjacent': 'Clés de lecture', Seasonal: 'Saisonnier', 'For readers': 'Pour les tarologues', 'Card meanings': 'Signification des lames', 'Stories & experience': 'Récits', Method: 'Méthode', Local: 'Villes' };
 
 async function context(lang) {
-  const [style, facts, brand, image, e1, e2] = await Promise.all([
-    doc('style'), doc('facts'), doc('brand-book'), doc('image_style'),
-    doc(`example_${lang}_1`), doc(`example_${lang}_2`),
+  const [style, facts, brand, image, e1] = await Promise.all([
+    doc('style'), doc('facts'), doc('brand-book'), doc('image_style'), doc(`example_${lang}_1`),
   ]);
-  return `<style_guide>\n${style}\n</style_guide>\n\n<facts>\n${facts}\n</facts>\n\n<brand_book>\n${brand.slice(0, 30000)}\n</brand_book>\n\n<image_style>\n${image}\n</image_style>\n\n<examples>\n<example>\n${e1}\n</example>\n<example>\n${e2}\n</example>\n</examples>`;
+  // the brand book's first sections (identity, voices, personality, voice rules, vocabulary) are what the writer needs; the rest is for humans
+  const brandCut = brand.split(/\n## 7\. /)[0].slice(0, 14000);
+  return `<style_guide>\n${style}\n</style_guide>\n\n<facts>\n${facts}\n</facts>\n\n<brand_book>\n${brandCut}\n</brand_book>\n\n<image_style>\n${image}\n</image_style>\n\n<example>\n${e1}\n</example>`;
 }
 
 export async function allowedPaths() {
@@ -44,13 +45,14 @@ export async function allowedPaths() {
   }
   return { en, fr, en2fr, titles };
 }
-const pathText = (set, titles) => [...set].sort().map((p) => (titles[p] ? `${p} — ${titles[p].slice(0, 70)}` : p)).join('\n');
+const CITY = /^\/(fr\/)?(usa|canada|uk|australia|france|quebec|belgique|suisse|luxembourg|monaco)\/tarot-/;
+const pathText = (set) => [...set].filter((p) => !CITY.test(p)).sort().join('\n');
 
 export async function systemFor(lang, paths) {
   const sys = await doc(lang === 'en' ? 'system_en' : 'system_fr');
   return [
     { type: 'text', text: sys + '\n\n' + (await context(lang)), cache_control: { type: 'ephemeral' } },
-    { type: 'text', text: '<allowed_paths>\n' + pathText(lang === 'en' ? paths.en : paths.fr, paths.titles) + '\n</allowed_paths>', cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: '<allowed_paths>\n' + pathText(lang === 'en' ? paths.en : paths.fr) + '\n</allowed_paths>', cache_control: { type: 'ephemeral' } },
   ];
 }
 

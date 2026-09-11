@@ -12,12 +12,14 @@ async function writeOne(row, lang, paths, st, enBody) {
   const system = await systemFor(lang, paths);
   const user = lang === 'en' ? userEn(row, today) : userFr(row, enBody, paths, today);
   let r = await callText({ provider: st.provider, model: st.model, system, user });
-  let cost = await record({ plan_id: row.id, lang, kind: 'text', provider: st.provider, model: st.model, usage: normalise(st.provider, r.usage) });
+  const u0 = normalise(st.provider, r.usage); const tok = { ...u0 };
+  let cost = await record({ plan_id: row.id, lang, kind: 'text', provider: st.provider, model: st.model, usage: u0 });
   let text = stripFences(r.text);
   let { problems, words } = validate(text, row, lang, paths);
   for (let attempt = 0; attempt < 2 && problems.length; attempt++) {
     r = await callText({ provider: st.provider, model: st.model, system, user: expandUser(lang, text, problems, Number(row.length || 900)) });
-    cost += await record({ plan_id: row.id, lang, kind: 'text', provider: st.provider, model: st.model, usage: normalise(st.provider, r.usage) });
+    const u1 = normalise(st.provider, r.usage); for (const k of Object.keys(u1)) tok[k] = (tok[k] || 0) + u1[k];
+    cost += await record({ plan_id: row.id, lang, kind: 'text', provider: st.provider, model: st.model, usage: u1 });
     const next = stripFences(r.text);
     const v = validate(next, row, lang, paths);
     if (v.words >= words || !v.problems.length) { text = next; ({ problems, words } = v); }
@@ -25,7 +27,8 @@ async function writeOne(row, lang, paths, st, enBody) {
   const slug = lang === 'en' ? row.slug_en : row.slug_fr;
   await db.from('articles').upsert({ plan_id: row.id, lang, slug, body: text, words, warnings: problems.join('; '), edited: false, updated_at: new Date().toISOString() });
   await db.from('plan').update({ [`status_${lang}`]: problems.length ? 'check' : 'written' }).eq('id', row.id);
-  await log(`${row.id} ${lang.toUpperCase()}: ${words} words · $${cost.toFixed(3)}${problems.length ? ' ⚠ ' + problems.join('; ') : ''}`);
+  const k = (n) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n || 0));
+  await log(`${row.id} ${lang.toUpperCase()}: ${words} words · $${cost.toFixed(3)} · in ${k(tok.input)} · cached ${k(tok.cache_read)} · written-to-cache ${k(tok.cache_write)} · out ${k(tok.output)}${problems.length ? ' ⚠ ' + problems.join('; ') : ''}`);
   return text;
 }
 

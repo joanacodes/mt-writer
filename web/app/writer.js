@@ -176,9 +176,9 @@ export default function Writer() {
 
 function Sheet({ row, close }) {
   const [data, setData] = useState(null); const [lang, setLang] = useState('en'); const [edit, setEdit] = useState(false); const [body, setBody] = useState('');
-  const load = () => fetch(`/api/article?id=${row.id}`).then((r) => r.json()).then((d) => { setData(d); });
+  const load = () => fetch(`/api/article?id=${row.id}`).then((r) => r.json()).then((d) => { setData(d); }).catch(() => {});
   useEffect(() => { load(); const t = setInterval(load, 8000); return () => clearInterval(t); }, [row.id]);
-  const art = data?.articles.find((a) => a.lang === lang);
+  const art = (data?.articles || []).find((a) => a.lang === lang);
   useEffect(() => { setBody(art?.body || ''); setEdit(false); }, [lang, data]);
   async function save() {
     await fetch('/api/article', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: row.id, lang, body }) });

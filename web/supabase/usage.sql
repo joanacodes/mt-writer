@@ -17,7 +17,7 @@ alter table usage enable row level security;
 
 -- Prices per million tokens (USD): edit here when they change. Images: per image.
 insert into docs (name, content) values ('prices', '{
-  "claude-fable-5-1":          {"in": 10,   "out": 50,  "cache_read": 0.25, "cache_write": 12.5},
+  "claude-fable-5-1":          {"in": 10,   "out": 50,  "cache_read": 1,    "cache_write": 12.5},
   "claude-opus-5":             {"in": 15,   "out": 75,  "cache_read": 1.5,  "cache_write": 18.75},
   "claude-sonnet-5":           {"in": 3,    "out": 15,  "cache_read": 0.3,  "cache_write": 3.75},
   "claude-haiku-4-5-20251001": {"in": 1,    "out": 5,   "cache_read": 0.1,  "cache_write": 1.25},
