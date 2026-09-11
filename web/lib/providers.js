@@ -28,17 +28,26 @@ async function withRetry(fn, tries = 4) {
   throw last;
 }
 
-export async function callText({ provider, model, system, user, maxTokens = 6000 }) {
+/* Writing needs no extended thinking: it burns the priciest tokens and eats the output ceiling. */
+export function anthropicParams({ model, system, user, maxTokens }) {
+  return { model, max_tokens: maxTokens, thinking: { type: 'disabled' }, system, messages: [{ role: 'user', content: user }] };
+}
+
+export async function callText({ provider, model, system, user, maxTokens = 16000 }) {
   if (provider === 'anthropic') {
     return withRetry(async () => {
-      const r = await fetch(`${process.env.MT_TEST_BASE || 'https://api.anthropic.com'}/v1/messages`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': A_VERSION },
-        body: JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: 'user', content: user }] }),
+      let params = anthropicParams({ model, system, user, maxTokens });
+      let r = await fetch(`${process.env.MT_TEST_BASE || 'https://api.anthropic.com'}/v1/messages`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': A_VERSION }, body: JSON.stringify(params),
       });
-      const j = await r.json();
+      let j = await r.json();
+      if (!r.ok && /thinking/i.test(j.error?.message || '')) {           // model doesn't take the flag: send without it
+        delete params.thinking;
+        r = await fetch(`${process.env.MT_TEST_BASE || 'https://api.anthropic.com'}/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': A_VERSION }, body: JSON.stringify(params) });
+        j = await r.json();
+      }
       if (!r.ok) throw new Error((j.error?.message || JSON.stringify(j).slice(0, 300)) + ` (${r.status})`);
-      return { text: j.content.filter((b) => b.type === 'text').map((b) => b.text).join(''), usage: j.usage };
+      return { text: j.content.filter((b) => b.type === 'text').map((b) => b.text).join(''), usage: j.usage, truncated: j.stop_reason === 'max_tokens' };
     });
   }
   const sysText = Array.isArray(system) ? system.map((b) => b.text).join('\n\n') : system;

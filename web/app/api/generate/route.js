@@ -16,7 +16,8 @@ async function writeOne(row, lang, paths, st, enBody) {
   let cost = await record({ plan_id: row.id, lang, kind: 'text', provider: st.provider, model: st.model, usage: u0 });
   let text = stripFences(r.text);
   let { problems, words } = validate(text, row, lang, paths);
-  for (let attempt = 0; attempt < 2 && problems.length; attempt++) {
+  if (r.truncated) problems.push('output cut at the token ceiling');
+  for (let attempt = 0; attempt < Number(st.max_retries ?? 2) && problems.length; attempt++) {
     r = await callText({ provider: st.provider, model: st.model, system, user: expandUser(lang, text, problems, Number(row.length || 900)) });
     const u1 = normalise(st.provider, r.usage); for (const k of Object.keys(u1)) tok[k] = (tok[k] || 0) + u1[k];
     cost += await record({ plan_id: row.id, lang, kind: 'text', provider: st.provider, model: st.model, usage: u1 });

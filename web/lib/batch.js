@@ -1,5 +1,5 @@
 import { db, log } from './db';
-import { submitBatch } from './providers';
+import { submitBatch, anthropicParams } from './providers';
 import { allowedPaths, systemFor, userEn, userFr } from './prompt';
 
 /** Submit a batch for ids in one language. chain: '' | 'fr' | 'fr+covers' | 'covers' (what to do when it lands). */
@@ -17,7 +17,7 @@ export async function submitBatchFor({ ids, mode, model, chain = '' }) {
     const custom_id = `${mode}-${row.id}`;
     items.push({ plan_id: row.id, lang: mode, custom_id });
     const content = mode === 'en' ? userEn(row, today) : userFr(row, enBy[row.id], paths, today);
-    requests.push({ custom_id, params: { model, max_tokens: 6000, system, messages: [{ role: 'user', content }] } });
+    requests.push({ custom_id, params: anthropicParams({ model, system, user: content, maxTokens: 16000 }) });
   }
   if (!requests.length) return null;
   const batch = await submitBatch(requests);

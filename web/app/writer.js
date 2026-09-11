@@ -24,19 +24,21 @@ export default function Writer() {
   const [settings, setSettings] = useState(null);
   const [showLog, setShowLog] = useState(false);
   const [help, setHelp] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   const loadPlan = useCallback(async () => setRows(await (await fetch('/api/plan')).json()), []);
   useEffect(() => { loadPlan(); fetch('/api/settings').then((r) => r.json()).then(setSettings); fetch('/api/cron'); }, [loadPlan]);
   useEffect(() => {
+    const every = Math.max(3, Number(settings?.poll_seconds || 6)) * 1000;
     const t = setInterval(async () => {
       const s = await (await fetch('/api/logs')).json();
       setLogs(s.logs); setJobs(s.jobs);
       const st = await (await fetch('/api/settings')).json(); setSettings((prev) => prev ? { ...prev, spend: st.spend } : st);
       if (s.jobs.length) { await fetch('/api/cron'); }
       loadPlan();
-    }, 6000);
+    }, every);
     return () => clearInterval(t);
-  }, [loadPlan]);
+  }, [loadPlan, settings?.poll_seconds]);
 
   const cats = useMemo(() => [...new Set(rows.map((r) => r.category))].sort(), [rows]);
   const shown = useMemo(() => rows.filter((r) => (r.type === 'article' || r.type === 'pillar') && r.status_en !== 'merged'
@@ -145,20 +147,22 @@ export default function Writer() {
       </div>
 
       <div className="actions">
-        <button className={busy ? "solid working" : "solid"} disabled={!!busy} title={T.write} onClick={() => post('/api/generate', { ids: ids(), en: true, fr: true }, 'both', 2)}>{busy ? (progress || '…') : `Write${sel.size ? ' ' + sel.size : ''}`}</button>
+        <button className={busy ? "solid working" : "solid"} disabled={!!busy} title={T.write} onClick={() => post('/api/generate', { ids: ids(), en: true, fr: true }, 'both', Number(settings?.chunk_live || 2))}>{busy ? (progress || '…') : `Write${sel.size ? ' ' + sel.size : ''}`}</button>
         <button disabled={!!busy} title={T.en} onClick={() => post('/api/generate', { ids: ids(), en: true, fr: false }, 'en', 3)}>EN</button>
         <button disabled={!!busy} title={T.fr} onClick={() => post('/api/generate', { ids: ids(), en: false, fr: true }, 'fr', 3)}>FR</button>
-        <button className="gold solid" style={{ background: '#a88c52', color: '#fff' }} disabled={!!busy} title={T.overnight} onClick={() => { if (confirm(`Overnight: write ${sel.size} article(s) in English, then French, then the covers — all in the background, at half price. Go?`)) post('/api/batch', { ids: ids(), mode: 'en', chain: 'fr+covers' }, 'overnight', 0); }}>Overnight ½</button>
+        <button className="gold solid" style={{ background: '#a88c52', color: '#fff' }} disabled={!!busy} title={T.overnight} onClick={() => { const steps = ['English'].concat(settings?.overnight_fr !== '0' ? ['French'] : [], settings?.overnight_covers === '1' ? ['covers'] : []); if (confirm(`Overnight: ${sel.size} article(s) — ${steps.join(', then ')} — in the background, at half price. Go?`)) post('/api/batch', { ids: ids(), mode: 'en', chain: 'auto' }, 'overnight', 0); }}>Overnight ½</button>
         <button className="gold" disabled={!!busy} title={T.batchEn} onClick={() => post('/api/batch', { ids: ids(), mode: 'en' }, 'batch', 0)}>Batch EN ½</button>
         <button className="gold" disabled={!!busy} title={T.batchFr} onClick={() => post('/api/batch', { ids: ids(), mode: 'fr' }, 'batchfr', 0)}>Batch FR ½</button>
         <button className="gold" disabled={!!busy} title={T.covers} onClick={() => post('/api/covers', { ids: ids() }, 'covers', 4)}>Covers</button>
-        <button disabled={!!busy} title={T.publish} onClick={() => { if (confirm(`Publish ${sel.size} article(s) to the site repo?`)) post('/api/publish', { ids: ids() }, 'publish', 5); }}>Publish</button>
+        <button disabled={!!busy} title={T.publish} onClick={() => { if (settings?.confirm_publish === '0' || confirm(`Publish ${sel.size} article(s) to the site repo?`)) post('/api/publish', { ids: ids() }, 'publish', 5); }}>Publish</button>
         {busy && <button onClick={() => { pauseRef.current = !pauseRef.current; setPaused(pauseRef.current); }} title="Pause after the current pair; resume where it stopped">{paused ? 'Resume' : 'Pause'}</button>}
         {busy && <button onClick={() => { if (confirm('Stop after the current pair? Finished articles are kept.')) { stopRef.current = true; pauseRef.current = false; } }} title="Stop the run after the pair in progress">Stop</button>}
         <button title="What each button does" onClick={() => setHelp(true)}>?</button>
+        <button title="Settings" onClick={() => setShowSettings(true)}>⚙</button>
       </div>
 
       {open && <Sheet row={open} close={() => { setOpen(null); loadPlan(); }} />}
+      {showSettings && settings && <Settings settings={settings} setSettings={setSettings} close={() => setShowSettings(false)} />}
       {help && (
         <div className="sheet">
           <header><button onClick={() => setHelp(false)}>← back</button><strong style={{ fontSize: 13 }}>What each button does</strong></header>
@@ -176,7 +180,14 @@ export default function Writer() {
 
 function Sheet({ row, close }) {
   const [data, setData] = useState(null); const [lang, setLang] = useState('en'); const [edit, setEdit] = useState(false); const [body, setBody] = useState('');
+  const [regen, setRegen] = useState('');
   const load = () => fetch(`/api/article?id=${row.id}`).then((r) => r.json()).then((d) => { setData(d); }).catch(() => {});
+  async function regenerate(en, fr) {
+    if (!confirm(`Rewrite ${en && fr ? 'both languages' : en ? 'the English' : 'the French'}? The current text will be replaced.`)) return;
+    setRegen(en && fr ? 'both' : en ? 'en' : 'fr');
+    await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids: [row.id], en, fr, force: true }) });
+    await load(); setRegen('');
+  }
   useEffect(() => { load(); const t = setInterval(load, 8000); return () => clearInterval(t); }, [row.id]);
   const art = (data?.articles || []).find((a) => a.lang === lang);
   useEffect(() => { setBody(art?.body || ''); setEdit(false); }, [lang, data]);
@@ -194,13 +205,85 @@ function Sheet({ row, close }) {
       <div className="tabs">
         <button className="chip" aria-pressed={lang === 'en'} onClick={() => setLang('en')}>English</button>
         <button className="chip" aria-pressed={lang === 'fr'} onClick={() => setLang('fr')}>Français</button>
-        <button className="chip" onClick={async () => { await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids: [row.id], en: lang === 'en', fr: lang === 'fr', force: true }) }); const d = await (await fetch(`/api/article?id=${row.id}`)).json(); setData(d); }}>regenerate</button>
+        <button className="chip" disabled={regen} title="Rewrite the English from scratch. The French is left as it is." onClick={() => regenerate(true, false)}>{regen === 'en' ? 'writing EN…' : 'regenerate EN'}</button>
+        <button className="chip" disabled={regen} title="Rewrite the French from the current English." onClick={() => regenerate(false, true)}>{regen === 'fr' ? 'writing FR…' : 'regenerate FR'}</button>
+        <button className="chip" disabled={regen} title="Rewrite both: English first, then the French from the new English." onClick={() => regenerate(true, true)}>{regen === 'both' ? 'writing both…' : 'regenerate both'}</button>
         <button className="chip" onClick={async () => { await fetch('/api/publish', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids: [row.id] }) }); alert('published'); }}>publish</button>
       </div>
       {art?.warnings && <p style={{ color: '#c0392b', font: '12px DM Mono, monospace', padding: '0 1rem' }}>⚠ {art.warnings}</p>}
       {!art && <p className="muted" style={{ padding: '0 1rem' }}>{row[`status_${lang}`] === 'queued' ? 'In a batch — this page refreshes itself when it lands.' : 'Not written yet. This page refreshes on its own every few seconds.'}</p>}
       {art && (edit ? <textarea value={body} onChange={(e) => setBody(e.target.value)} /> : <pre>{art.body}</pre>)}
       <p className="muted" style={{ padding: '1rem', font: '12px DM Mono, monospace' }}>{data?.cover ? `cover ready${data.cover.published_at ? ' · published' : ''} · ` : ''}{data ? `cost so far $${Number(data.cost || 0).toFixed(3)}` : ''}</p>
+    </div>
+  );
+}
+
+
+function Settings({ settings, setSettings, close }) {
+  const [ref, setRef] = useState(null);
+  useEffect(() => { fetch('/api/reference').then((r) => r.json()).then(setRef); }, []);
+  async function save(patch) {
+    setSettings({ ...settings, ...patch });
+    await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch) });
+  }
+  const Toggle = ({ k, label, hint }) => (
+    <label className="setrow"><span><b>{label}</b><small>{hint}</small></span>
+      <input type="checkbox" checked={settings[k] === '1'} onChange={(e) => save({ [k]: e.target.checked ? '1' : '0' })} /></label>
+  );
+  const Num = ({ k, label, hint, min, max }) => (
+    <label className="setrow"><span><b>{label}</b><small>{hint}</small></span>
+      <input type="number" min={min} max={max} value={settings[k]} onChange={(e) => save({ [k]: e.target.value })} style={{ width: '5rem' }} /></label>
+  );
+  const Text = ({ k, label, hint }) => (
+    <label className="setrow"><span><b>{label}</b><small>{hint}</small></span>
+      <input type="text" value={settings[k] || ''} onChange={(e) => save({ [k]: e.target.value })} style={{ width: '10rem' }} /></label>
+  );
+  async function upload(e) {
+    const f = e.target.files?.[0]; if (!f) return;
+    const b64 = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.readAsDataURL(f); });
+    const r = await fetch('/api/reference', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ data: b64 }) });
+    const j = await r.json(); if (j.error) alert(j.error); else setRef({ present: true, updated_at: new Date().toISOString() });
+  }
+  async function maint(action, msg) { if (!confirm(msg)) return; await fetch('/api/maintenance', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action }) }); alert('done'); }
+  return (
+    <div className="sheet">
+      <header><button onClick={close}>← back</button><strong style={{ fontSize: 13 }}>Settings</strong></header>
+      <div className="settings">
+        <h3>Writing</h3>
+        <label className="setrow"><span><b>Model</b><small>Who writes. Batch and Overnight need an Anthropic model.</small></span>
+          <select value={`${settings.provider}|${settings.model}`} onChange={(e) => { const [provider, model] = e.target.value.split('|'); save({ provider, model }); }}>
+            {Object.entries(settings.textModels).flatMap(([p, ms]) => ms.map((m) => <option key={p + m} value={`${p}|${m}`}>{p} · {m}</option>))}
+          </select></label>
+        <Num k="max_retries" label="Retries on a failed check" hint="Times the writer gets its draft back to fix length, links or banned words. 0 = accept as is." min={0} max={3} />
+        <Num k="default_length" label="Default length (words)" hint="Used when a row has no length of its own." min={400} max={2500} />
+        <Num k="chunk_live" label="Live batch size" hint="Articles per request when you press Write. Lower if you see timeouts." min={1} max={4} />
+
+        <h3>Overnight</h3>
+        <Toggle k="overnight_fr" label="Then French" hint="Submit the French batch automatically when the English lands." />
+        <Toggle k="overnight_covers" label="Then covers" hint="Generate cover images automatically after the text. Off until the visual style is settled." />
+
+        <h3>Covers</h3>
+        <label className="setrow"><span><b>Image model</b><small>Google matches a reference photo; OpenAI doesn't.</small></span>
+          <select value={`${settings.image_provider}|${settings.image_model}`} onChange={(e) => { const [image_provider, image_model] = e.target.value.split('|'); save({ image_provider, image_model }); }}>
+            {Object.entries(settings.imageModels).flatMap(([p, ms]) => ms.map((m) => <option key={p + m} value={`${p}|${m}`}>{p} · {m}</option>))}
+          </select></label>
+        <label className="setrow"><span><b>Reference photo</b><small>{ref?.present ? `Set (${new Date(ref.updated_at).toLocaleDateString()}). Every cover is generated in its style.` : 'None. Upload a JPEG you like; every cover will match it.'}</small></span>
+          <span><input type="file" accept="image/jpeg" onChange={upload} style={{ width: '9rem' }} />{ref?.present && <button className="chip" onClick={async () => { await fetch('/api/reference', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ data: '' }) }); setRef({ present: false }); }}>remove</button>}</span></label>
+
+        <h3>Publishing</h3>
+        <Text k="publish_prefix" label="Commit message prefix" hint="Appears in the site repository's history." />
+        <Toggle k="publish_covers" label="Publish covers with articles" hint="Off: only the two Markdown files are committed." />
+        <Toggle k="confirm_publish" label="Ask before publishing" hint="A confirmation dialog on the Publish button." />
+
+        <h3>Interface</h3>
+        <Num k="poll_seconds" label="Refresh every (seconds)" hint="How often the list, the log and the spend update." min={3} max={60} />
+
+        <h3>Housekeeping</h3>
+        <div className="setrow"><span><b>Clear the log</b><small>Removes the activity lines. Costs are kept.</small></span><button className="chip" onClick={() => maint('clear_logs', 'Clear the activity log?')}>clear</button></div>
+        <div className="setrow"><span><b>Reset queued rows</b><small>If a batch was lost, marks its rows as to-write again and abandons the job.</small></span><button className="chip" onClick={() => maint('reset_queued', 'Reset all queued rows to “to write” and abandon open batches?')}>reset</button></div>
+        <div className="setrow"><span><b>Empty the cover queue</b><small>Drops pending and failed cover jobs.</small></span><button className="chip" onClick={() => maint('clear_cover_queue', 'Empty the cover queue?')}>empty</button></div>
+        <p className="muted" style={{ fontSize: 12, marginTop: '1.5rem' }}>The prompts, the brand book, the facts and the examples are edited in Supabase → Table editor → docs. Prices per model: same table, row “prices”.</p>
+      </div>
     </div>
   );
 }
