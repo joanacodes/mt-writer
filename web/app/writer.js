@@ -1,6 +1,17 @@
 'use client';
 import { useEffect, useMemo, useState, useCallback } from 'react';
 
+const T = {
+  write: 'Writes the selected articles now, English then French, two at a time while you watch. Full price. Keep this tab open.',
+  en: 'Writes only the English, now. Skips rows already written unless you regenerate from inside the article.',
+  fr: 'Adapts into French the rows whose English exists, now.',
+  overnight: 'One tap, close the laptop: English batch → French batch → covers, all automatic in the background, half price. Results appear over the next hours.',
+  batchEn: 'Sends the English to Anthropic’s queue: instant, half price, results within the hour (up to 24). Collected automatically.',
+  batchFr: 'Same, for the French — for rows whose English is already in.',
+  covers: 'Generates a cover image per selected article, now, from the prompt in its front matter.',
+  publish: 'Commits the two Markdown files and the cover into the site repository. The site rebuilds in about a minute.',
+  prepare: 'Fills the missing French (or English) title, keyword and slug for every row. Run once.',
+};
 const cls = (s) => (s === 'written' ? 'written' : s === 'check' ? 'check' : s === 'queued' ? 'queued' : '');
 
 export default function Writer() {
@@ -11,6 +22,7 @@ export default function Writer() {
   const [busy, setBusy] = useState(''); const [open, setOpen] = useState(null);
   const [settings, setSettings] = useState(null);
   const [showLog, setShowLog] = useState(false);
+  const [help, setHelp] = useState(false);
 
   const loadPlan = useCallback(async () => setRows(await (await fetch('/api/plan')).json()), []);
   useEffect(() => { loadPlan(); fetch('/api/settings').then((r) => r.json()).then(setSettings); fetch('/api/cron'); }, [loadPlan]);
@@ -79,7 +91,7 @@ export default function Writer() {
           ))}
           <button className="chip" onClick={() => selectAll(true)}>select all ({shown.length})</button>
           <button className="chip" onClick={() => setSel(new Set())}>none</button>
-          <button className="chip" onClick={prepare} disabled={!!busy}>prepare titles</button>
+          <button className="chip" onClick={prepare} disabled={!!busy} title={T.prepare}>prepare titles</button>
           {settings?.spend && <span className="chip" title={`${settings.spend.calls} calls`}>${settings.spend.today.toFixed(2)} today · ${settings.spend.total.toFixed(2)} total</span>}
           {settings && (
             <select className="chip" value={`${settings.provider}|${settings.model}`} onChange={async (e) => {
@@ -114,7 +126,6 @@ export default function Writer() {
         ))}
       </div>
 
-      </div>
       <div className={`log${showLog ? ' open' : ''}`}>
         <button className="close chip" onClick={() => setShowLog(false)}>close</button>
         {jobs.length ? `${jobs.length} batch job(s) running — results arrive on their own\n` : ''}
@@ -123,17 +134,30 @@ export default function Writer() {
       </div>
 
       <div className="actions">
-        <button className={busy ? "solid working" : "solid"} disabled={!!busy} onClick={() => post('/api/generate', { ids: ids(), en: true, fr: true }, 'both', 2)}>{busy ? (progress || '…') : `Write${sel.size ? ' ' + sel.size : ''}`}</button>
-        <button disabled={!!busy} onClick={() => post('/api/generate', { ids: ids(), en: true, fr: false }, 'en', 3)}>EN</button>
-        <button disabled={!!busy} onClick={() => post('/api/generate', { ids: ids(), en: false, fr: true }, 'fr', 3)}>FR</button>
-        <button className="gold" disabled={!!busy} onClick={() => post('/api/batch', { ids: ids(), mode: 'en' }, 'batch', 0)}>Batch EN ½</button>
-        <button className="gold" disabled={!!busy} onClick={() => post('/api/batch', { ids: ids(), mode: 'fr' }, 'batchfr', 0)}>Batch FR ½</button>
-        <button className="gold" disabled={!!busy} onClick={() => post('/api/covers', { ids: ids() }, 'covers', 4)}>Covers</button>
-        <button disabled={!!busy} onClick={() => { if (confirm(`Publish ${sel.size} article(s) to the site repo?`)) post('/api/publish', { ids: ids() }, 'publish', 5); }}>Publish</button>
+        <button className={busy ? "solid working" : "solid"} disabled={!!busy} title={T.write} onClick={() => post('/api/generate', { ids: ids(), en: true, fr: true }, 'both', 2)}>{busy ? (progress || '…') : `Write${sel.size ? ' ' + sel.size : ''}`}</button>
+        <button disabled={!!busy} title={T.en} onClick={() => post('/api/generate', { ids: ids(), en: true, fr: false }, 'en', 3)}>EN</button>
+        <button disabled={!!busy} title={T.fr} onClick={() => post('/api/generate', { ids: ids(), en: false, fr: true }, 'fr', 3)}>FR</button>
+        <button className="gold solid" style={{ background: '#a88c52', color: '#fff' }} disabled={!!busy} title={T.overnight} onClick={() => { if (confirm(`Overnight: write ${sel.size} article(s) in English, then French, then the covers — all in the background, at half price. Go?`)) post('/api/batch', { ids: ids(), mode: 'en', chain: 'fr+covers' }, 'overnight', 0); }}>Overnight ½</button>
+        <button className="gold" disabled={!!busy} title={T.batchEn} onClick={() => post('/api/batch', { ids: ids(), mode: 'en' }, 'batch', 0)}>Batch EN ½</button>
+        <button className="gold" disabled={!!busy} title={T.batchFr} onClick={() => post('/api/batch', { ids: ids(), mode: 'fr' }, 'batchfr', 0)}>Batch FR ½</button>
+        <button className="gold" disabled={!!busy} title={T.covers} onClick={() => post('/api/covers', { ids: ids() }, 'covers', 4)}>Covers</button>
+        <button disabled={!!busy} title={T.publish} onClick={() => { if (confirm(`Publish ${sel.size} article(s) to the site repo?`)) post('/api/publish', { ids: ids() }, 'publish', 5); }}>Publish</button>
         <button className="logbtn" onClick={() => setShowLog(true)}>log{logs.length ? ` (${logs.length})` : ''}</button>
+        <button title="What each button does" onClick={() => setHelp(true)}>?</button>
       </div>
 
       {open && <Sheet row={open} close={() => { setOpen(null); loadPlan(); }} />}
+      {help && (
+        <div className="sheet">
+          <header><button onClick={() => setHelp(false)}>← back</button><strong style={{ fontSize: 13 }}>What each button does</strong></header>
+          <div style={{ padding: '1rem', fontSize: 14 }}>
+            {[['Write', T.write], ['EN', T.en], ['FR', T.fr], ['Overnight ½', T.overnight], ['Batch EN ½', T.batchEn], ['Batch FR ½', T.batchFr], ['Covers', T.covers], ['Publish', T.publish], ['prepare titles', T.prepare]].map(([k, v]) => (
+              <p key={k} style={{ margin: '0 0 .9rem' }}><b style={{ fontFamily: 'var(--d)' }}>{k}</b><br />{v}</p>
+            ))}
+            <p className="muted" style={{ fontSize: 12 }}>Dots: EN / FR / cover — grey not done, green done, gold queued, red needs a check. Batches and Overnight need the Supabase cron to be set (see README) to run while the app is closed.</p>
+          </div>
+        </div>
+      )}
     </>
   );
 }

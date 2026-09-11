@@ -1,25 +1,30 @@
-import { db, log } from '@/lib/db';
-import { batchStatus, batchResults } from '@/lib/providers';
-import { allowedPaths, stripFences } from '@/lib/prompt';
+import { db, log, settings, doc } from '@/lib/db';
+import { batchStatus, batchResults, callImage } from '@/lib/providers';
+import { allowedPaths, stripFences, frontMatter } from '@/lib/prompt';
 import { validate } from '@/lib/validate';
 import { record, normalise } from '@/lib/cost';
+import { submitBatchFor } from '@/lib/batch';
 
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
 
-/* Polls open batches and stores the finished articles. Called by Vercel Cron and by the app when it opens. */
+/* Runs every few minutes (Supabase pg_cron) and whenever the app opens:
+   1. collects finished batches and stores the articles;
+   2. if a batch was chained, submits the next step (FR batch, or covers);
+   3. generates a few queued covers. */
 export async function GET() {
   const { data: jobs } = await db.from('jobs').select('*').in('status', ['submitted', 'in_progress']);
-  if (!jobs?.length) return Response.json({ ok: true, jobs: 0 });
   const paths = await allowedPaths();
+  const st = await settings();
   let stored = 0;
-  for (const job of jobs) {
+  for (const job of jobs || []) {
     const s = await batchStatus(job.batch_id);
     if (s.processing_status !== 'ended') {
-      await db.from('jobs').update({ status: 'in_progress', note: JSON.stringify(s.request_counts || {}), updated_at: new Date().toISOString() }).eq('id', job.id);
+      await db.from('jobs').update({ status: 'in_progress', updated_at: new Date().toISOString() }).eq('id', job.id);
       continue;
     }
     const results = await batchResults(s.results_url);
+    const landed = [];
     for (const r of results) {
       const item = (job.items || []).find((i) => i.custom_id === r.custom_id);
       if (!item) continue;
@@ -35,10 +40,42 @@ export async function GET() {
       const { problems, words } = validate(text, row, item.lang, paths);
       await db.from('articles').upsert({ plan_id: row.id, lang: item.lang, slug: item.lang === 'en' ? row.slug_en : row.slug_fr, body: text, words, warnings: problems.join('; '), edited: false, updated_at: new Date().toISOString() });
       await db.from('plan').update({ [`status_${item.lang}`]: problems.length ? 'check' : 'written' }).eq('id', row.id);
-      stored++;
+      landed.push(row.id); stored++;
     }
     await db.from('jobs').update({ status: 'done', updated_at: new Date().toISOString() }).eq('id', job.id);
-    await log(`batch ${job.batch_id}: ${stored} article(s) stored`);
+    await log(`batch ${job.batch_id.slice(-6)}: ${landed.length} ${job.items?.[0]?.lang?.toUpperCase() || ''} article(s) stored`);
+    // chain
+    const chain = job.chain || '';
+    if (landed.length && chain.startsWith('fr')) {
+      try { await submitBatchFor({ ids: landed, mode: 'fr', model: job.note || st.model, chain: chain.includes('covers') ? 'covers' : '' }); }
+      catch (e) { await log(`chain FR failed: ${e.message}`); }
+    } else if (landed.length && chain === 'covers') {
+      await db.from('queue').insert(landed.map((plan_id) => ({ kind: 'cover', plan_id })));
+      await log(`${landed.length} cover(s) queued`);
+    }
   }
-  return Response.json({ ok: true, stored });
+  // covers, a few per run
+  const { data: q } = await db.from('queue').select('*').eq('status', 'pending').eq('kind', 'cover').order('id').limit(4);
+  if (q?.length) {
+    const reference = await doc('reference_jpg_base64');
+    for (const item of q) {
+      await db.from('queue').update({ status: 'working' }).eq('id', item.id);
+      try {
+        const { data: row } = await db.from('plan').select('*').eq('id', item.plan_id).maybeSingle();
+        const { data: art } = await db.from('articles').select('body').eq('plan_id', item.plan_id).eq('lang', 'en').maybeSingle();
+        const prompt = art ? frontMatter(art.body)[0]?.imagePrompt : null;
+        if (!row || !prompt) throw new Error('no prompt');
+        const b64 = await callImage({ provider: st.image_provider, model: st.image_model, prompt, referenceB64: reference || null });
+        await db.from('covers').upsert({ plan_id: row.id, slug: row.slug_en, mime: 'image/jpeg', data: b64, prompt, published_at: null });
+        await db.from('plan').update({ cover: 'done' }).eq('id', row.id);
+        const cost = await record({ plan_id: row.id, kind: 'image', provider: st.image_provider, model: st.image_model, image: true });
+        await db.from('queue').update({ status: 'done' }).eq('id', item.id);
+        await log(`${row.id}: cover generated · $${cost.toFixed(3)}`);
+      } catch (e) {
+        await db.from('queue').update({ status: 'failed', note: e.message }).eq('id', item.id);
+        await log(`${item.plan_id}: cover ERROR ${e.message}`);
+      }
+    }
+  }
+  return Response.json({ ok: true, stored, covers: q?.length || 0 });
 }

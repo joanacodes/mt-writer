@@ -8,7 +8,8 @@ The writer, on the internet: write articles in English and French from your phon
 
 - **Plan** — the 727 rows, searchable, filterable, with your notes. Notes are saved as you type and outrank every other instruction.
 - **Write** — one article or fifty: English, French, or both. The French is an adaptation, not a translation, with the links swapped to their French equivalents and the same `translationKey` so the site pairs them.
-- **Batch** — the same work at half price through the Anthropic Batch API, for when you select a hundred at once. Results arrive on their own; the app collects them when you open it.
+- **Batch EN ½ / Batch FR ½** — the same work at half price through the Anthropic Batch API, for when you select a hundred at once — or three hundred. English first; once it's in, select the same rows and Batch FR. Results arrive on their own; the app collects them when you open it, and every ten minutes if you've set the Supabase cron.
+- **Cost** — every call is recorded with its tokens and price; the header shows today and total, each article shows what it cost so far. Prices live in the `docs` table, row `prices`; edit them when they change.
 - **Read and edit** — tap a title to read the article, switch language, edit, save. An edited article is never overwritten by a regeneration unless you ask.
 - **Covers** — an image per article pair, from the prompt the writer put in the front matter, in the house style.
 - **Publish** — commits the two Markdown files and the cover into the Hugo repository. GitHub Actions rebuilds the site.
@@ -18,7 +19,7 @@ The writer, on the internet: write articles in English and French from your phon
 ## Setting it up
 
 ### 1. Supabase
-Open your project → SQL editor → paste `supabase/schema.sql` → run. Then Project settings → API, and copy the **project URL** and the **service_role** key.
+Open your project → SQL editor → paste `supabase/schema.sql` → run. Then `supabase/usage.sql` (cost tracking and the price table), then `supabase/overnight.sql` (chained batches and the cover queue). Then Project settings → API, and copy the **project URL** and the **service_role** key.
 
 ### 2. Local, once: fill the database
 From this folder, with the local writer folder and the site next to it:
@@ -41,6 +42,16 @@ Import this repository. Add the environment variables from `.env.example` — Su
 Open the URL on your phone, enter the password, and add it to your home screen.
 
 ---
+
+## Overnight
+
+Select rows, tap **Overnight ½**, close the laptop. The English goes to Anthropic's batch queue; when it lands, the French batch is submitted automatically; when that lands, the covers are queued and generated a few at a time. All of it is driven by `/api/cron`, so it only runs while something calls that route: set the Supabase schedule (every 10 minutes) once and the whole chain works with the phone off.
+
+```sql
+-- Supabase → Database → Extensions: enable pg_cron and pg_net. Then, with your real URL:
+select cron.schedule('mt-writer-poll', '*/10 * * * *',
+  $$ select net.http_get(url := 'https://YOUR-APP.vercel.app/api/cron'); $$);
+```
 
 ## Notes on the plumbing
 
