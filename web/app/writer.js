@@ -10,6 +10,7 @@ export default function Writer() {
   const [logs, setLogs] = useState([]); const [jobs, setJobs] = useState([]);
   const [busy, setBusy] = useState(''); const [open, setOpen] = useState(null);
   const [settings, setSettings] = useState(null);
+  const [showLog, setShowLog] = useState(false);
 
   const loadPlan = useCallback(async () => setRows(await (await fetch('/api/plan')).json()), []);
   useEffect(() => { loadPlan(); fetch('/api/settings').then((r) => r.json()).then(setSettings); fetch('/api/cron'); }, [loadPlan]);
@@ -92,7 +93,8 @@ export default function Writer() {
         </div>
       </header>
 
-      <div>
+      <div className="main">
+      <div className="list">
         {shown.map((r) => (
           <div className="row" key={r.id}>
             <input type="checkbox" checked={sel.has(r.id)} onChange={() => toggle(r.id)} />
@@ -112,9 +114,12 @@ export default function Writer() {
         ))}
       </div>
 
-      <div className="log">
+      </div>
+      <div className={`log${showLog ? ' open' : ''}`}>
+        <button className="close chip" onClick={() => setShowLog(false)}>close</button>
         {jobs.length ? `${jobs.length} batch job(s) running — results arrive on their own\n` : ''}
         {logs.map((l) => `${new Date(l.at).toLocaleTimeString()}  ${l.line}`).join('\n') || 'no activity yet'}
+      </div>
       </div>
 
       <div className="actions">
@@ -125,6 +130,7 @@ export default function Writer() {
         <button className="gold" disabled={!!busy} onClick={() => post('/api/batch', { ids: ids(), mode: 'fr' }, 'batchfr', 0)}>Batch FR ½</button>
         <button className="gold" disabled={!!busy} onClick={() => post('/api/covers', { ids: ids() }, 'covers', 4)}>Covers</button>
         <button disabled={!!busy} onClick={() => { if (confirm(`Publish ${sel.size} article(s) to the site repo?`)) post('/api/publish', { ids: ids() }, 'publish', 5); }}>Publish</button>
+        <button className="logbtn" onClick={() => setShowLog(true)}>log{logs.length ? ` (${logs.length})` : ''}</button>
       </div>
 
       {open && <Sheet row={open} close={() => { setOpen(null); loadPlan(); }} />}
