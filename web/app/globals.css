@@ -28,16 +28,13 @@ input[type=search],select{border:1px solid var(--g2);border-radius:999px;padding
 .actions::-webkit-scrollbar{display:none}
 .actions button{flex:none;white-space:nowrap;padding:.5em .9em;font-size:13px;line-height:1.2}
 .main{display:block}
-.log{font:11px var(--m);color:var(--muted);padding:1rem;background:var(--g1);border-top:1px solid var(--g2);white-space:pre-wrap}
-.logbtn{display:inline-block}
-@media (min-width:1000px){
-  .main{display:grid;grid-template-columns:minmax(0,1fr) 22rem;align-items:start}
-  .list{max-width:60rem}
-  .log{position:sticky;top:6.2rem;max-height:calc(100vh - 6.2rem - 4rem);overflow:auto;border-left:1px solid var(--g2);border-top:0}
-  .logbtn{display:none}
-  .row{padding-right:1.5rem}
-}
-@media (max-width:999px){ .log{display:none} .log.open{display:block;position:fixed;inset:0;z-index:40;overflow:auto;padding-top:3.5rem} .log .close{position:fixed;top:.7rem;right:1rem} }
+.logbubble{position:fixed;right:1rem;bottom:4.6rem;z-index:35;background:var(--ink);color:#fff;border:0;border-radius:999px;padding:.6em 1em;font:12px var(--m);box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.logbubble.live::after{content:'';display:inline-block;width:.5rem;height:.5rem;border-radius:999px;background:var(--gold);margin-left:.5em;animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.3}}
+.log{display:none;position:fixed;right:1rem;bottom:7.4rem;width:min(92vw,34rem);max-height:60vh;overflow:auto;z-index:36;background:#fff;border:1px solid var(--g2);border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.18);padding:1rem;font:11px var(--m);color:var(--muted);white-space:pre-wrap}
+.log.open{display:block}
+.log .close{float:right}
+.paused{color:var(--gold);font:12px var(--m);padding:0 .6em}
 .sheet{position:fixed;inset:0;background:#fff;z-index:40;overflow:auto;padding-bottom:5rem}
 .sheet header{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--g2);padding:.7rem 1rem;display:flex;gap:.5rem;align-items:center}
 .sheet pre{white-space:pre-wrap;font:13px/1.6 var(--b);padding:0 1rem}

@@ -1,7 +1,7 @@
 import { db, doc } from './db';
 
 export function frontMatter(text) {
-  const m = /^\s*---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(text);
+  const m = /^\s*---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/.exec(text);
   if (!m) return [null, text];
   const fm = {};
   let key = null;
@@ -12,7 +12,13 @@ export function frontMatter(text) {
   }
   return [fm, m[2]];
 }
-export const stripFences = (t) => t.trim().replace(/^```(?:markdown|md)?\n/, '').replace(/\n```$/, '');
+/* Drops code fences and anything the model wrote before the front matter. */
+export const stripFences = (t) => {
+  let s = String(t).replace(/```[a-z]*\r?\n?/g, '').trim();
+  const i = s.search(/(^|\n)---\r?\n/);
+  if (i > 0) s = s.slice(i).replace(/^\n/, '');
+  return s.trim();
+};
 
 const CAT_FR = { Learn: 'Apprendre', Practice: 'Tirages', 'Ideas we refuse': 'Idées reçues', Trends: 'Tendances', 'Astrology, tested': 'Astrologie testée', 'Lenses & adjacent': 'Clés de lecture', Seasonal: 'Saisonnier', 'For readers': 'Pour les tarologues', 'Card meanings': 'Signification des lames', 'Stories & experience': 'Récits', Method: 'Méthode', Local: 'Villes' };
 
@@ -56,7 +62,7 @@ title (use as the front-matter title, you may tighten it slightly): ${row.title_
 target keyword: ${row.keyword_en}
 category: ${row.category}
 suggested tags: ${row.tags}
-length (body words): ${row.length || 900}
+length: the BODY (after the front matter) must be between ${Math.round((row.length || 900) * 0.9)} and ${Math.round((row.length || 900) * 1.25)} words — aim for ${row.length || 900}. Five to seven H2 sections of 120–200 words each gets you there. Short is a failure.
 slug: ${row.slug_en}  (front matter must include: translationKey: post-${row.slug_en})
 house angle: ${row.angle || ''}
 notes (highest priority — follow them): ${row.notes || '(none)'}
@@ -76,7 +82,8 @@ titre français (à utiliser comme title, vous pouvez le resserrer) : ${row.titl
 mot-clé cible : ${row.keyword_fr || '(déduisez-le)'}
 catégorie (à écrire exactement ainsi dans categories) : ${CAT_FR[row.category] || row.category}
 tags : en français, 5 à 7, pas une traduction mot à mot
-longueur (mots du corps) : ${row.length || 900}
+longueur : le CORPS (après le front matter) doit faire entre ${Math.round((row.length || 900) * 0.9)} et ${Math.round((row.length || 900) * 1.25)} mots — visez ${row.length || 900}. Cinq à sept sections H2 de 120 à 200 mots. Trop court = raté.
+Commencez la sortie DIRECTEMENT par la ligne --- du front matter. Rien avant.
 slug : ${row.slug_fr}  (le front matter doit contenir : translationKey: post-${row.slug_en})
 notes (priorité absolue) : ${row.notes || '(aucune)'}
 date : ${today}
@@ -88,4 +95,11 @@ ${links.join('\n') || '(aucun lien)'}
 <article_anglais>
 ${enText}
 </article_anglais>`;
+}
+
+/* Second attempt: expand the model's own draft rather than start again. */
+export function expandUser(lang, draft, problems, target) {
+  return lang === 'en'
+    ? `Your draft below has problems: ${problems.join('; ')}. Fix them and return the COMPLETE article again — front matter first, starting with the --- line, nothing before it. If it is too short, expand every section with a concrete example or a second angle until the body has at least ${Math.round(target * 0.9)} words (aim for ${target}); do not pad with repetition. Keep everything else that was right.\n\n<draft>\n${draft}\n</draft>`
+    : `Votre brouillon ci-dessous a des problèmes : ${problems.join(' ; ')}. Corrigez-les et renvoyez l'article COMPLET — front matter d'abord, en commençant par la ligne ---, rien avant. S'il est trop court, développez chaque section avec un exemple concret ou un second angle jusqu'à ce que le corps fasse au moins ${Math.round(target * 0.9)} mots (visez ${target}) ; pas de remplissage. Gardez ce qui était juste.\n\n<brouillon>\n${draft}\n</brouillon>`;
 }

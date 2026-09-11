@@ -1,7 +1,7 @@
 import { db, log, settings } from '@/lib/db';
 import { isAuthed, unauthorized } from '@/lib/auth';
 import { callText } from '@/lib/providers';
-import { allowedPaths, systemFor, userEn, userFr, stripFences } from '@/lib/prompt';
+import { allowedPaths, systemFor, userEn, userFr, stripFences, expandUser } from '@/lib/prompt';
 import { validate } from '@/lib/validate';
 import { record, normalise } from '@/lib/cost';
 
@@ -15,13 +15,12 @@ async function writeOne(row, lang, paths, st, enBody) {
   let cost = await record({ plan_id: row.id, lang, kind: 'text', provider: st.provider, model: st.model, usage: normalise(st.provider, r.usage) });
   let text = stripFences(r.text);
   let { problems, words } = validate(text, row, lang, paths);
-  if (problems.length) {
-    const retryRow = { ...row, notes: `${row.notes || ''} | FIX: ${problems.join('; ')}` };
-    const retryUser = lang === 'en' ? userEn(retryRow, today) : userFr(retryRow, enBody, paths, today);
-    r = await callText({ provider: st.provider, model: st.model, system, user: retryUser });
+  for (let attempt = 0; attempt < 2 && problems.length; attempt++) {
+    r = await callText({ provider: st.provider, model: st.model, system, user: expandUser(lang, text, problems, Number(row.length || 900)) });
     cost += await record({ plan_id: row.id, lang, kind: 'text', provider: st.provider, model: st.model, usage: normalise(st.provider, r.usage) });
-    text = stripFences(r.text);
-    ({ problems, words } = validate(text, row, lang, paths));
+    const next = stripFences(r.text);
+    const v = validate(next, row, lang, paths);
+    if (v.words >= words || !v.problems.length) { text = next; ({ problems, words } = v); }
   }
   const slug = lang === 'en' ? row.slug_en : row.slug_fr;
   await db.from('articles').upsert({ plan_id: row.id, lang, slug, body: text, words, warnings: problems.join('; '), edited: false, updated_at: new Date().toISOString() });

@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 
 const T = {
   write: 'Writes the selected articles now, English then French, two at a time while you watch. Full price. Keep this tab open.',
@@ -12,6 +12,7 @@ const T = {
   publish: 'Commits the two Markdown files and the cover into the site repository. The site rebuilds in about a minute.',
   prepare: 'Fills the missing French (or English) title, keyword and slug for every row. Run once.',
 };
+const D = (s, lang) => ({ written: `${lang}: written and validated`, check: `${lang}: written, but something failed validation — open to see what`, queued: `${lang}: in a batch, waiting for results`, exists: `${lang}: already on the site`, todo: `${lang}: not written yet` })[s] || `${lang}: ${s}`;
 const cls = (s) => (s === 'written' ? 'written' : s === 'check' ? 'check' : s === 'queued' ? 'queued' : '');
 
 export default function Writer() {
@@ -30,7 +31,9 @@ export default function Writer() {
     const t = setInterval(async () => {
       const s = await (await fetch('/api/logs')).json();
       setLogs(s.logs); setJobs(s.jobs);
-      if (s.jobs.length) { await fetch('/api/cron'); loadPlan(); }
+      const st = await (await fetch('/api/settings')).json(); setSettings((prev) => prev ? { ...prev, spend: st.spend } : st);
+      if (s.jobs.length) { await fetch('/api/cron'); }
+      loadPlan();
     }, 6000);
     return () => clearInterval(t);
   }, [loadPlan]);
@@ -48,6 +51,8 @@ export default function Writer() {
   const selectAll = (on) => setSel((s) => { const n = new Set(s); shown.forEach((r) => (on ? n.add(r.id) : n.delete(r.id))); return n; });
 
   const [progress, setProgress] = useState('');
+  const pauseRef = useRef(false); const [paused, setPaused] = useState(false); const stopRef = useRef(false);
+  const waitIfPaused = async () => { while (pauseRef.current && !stopRef.current) await new Promise((r) => setTimeout(r, 800)); };
   /* Live actions run a few rows per request so Vercel's time limit is never hit; the loop is here, in the phone. */
   async function post(url, body, label, chunk = 3) {
     const all = body.ids || [];
@@ -57,14 +62,16 @@ export default function Writer() {
       const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
       const j = await r.json().catch(() => ({})); if (j.error) alert(j.error);
     } else {
+      stopRef.current = false;
       for (let i = 0; i < all.length; i += chunk) {
+        await waitIfPaused(); if (stopRef.current) break;
         setProgress(`${Math.min(i + chunk, all.length)}/${all.length}`);
         const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, ids: all.slice(i, i + chunk) }) });
         const j = await r.json().catch(() => ({})); if (j.error) { alert(j.error); break; }
         loadPlan();
       }
     }
-    setProgress(''); setBusy(''); loadPlan(); fetch('/api/settings').then((r) => r.json()).then(setSettings);
+    setProgress(''); setBusy(''); pauseRef.current = false; setPaused(false); loadPlan(); fetch('/api/settings').then((r) => r.json()).then(setSettings);
   }
   async function prepare() {
     setBusy('prepare');
@@ -92,7 +99,7 @@ export default function Writer() {
           <button className="chip" onClick={() => selectAll(true)}>select all ({shown.length})</button>
           <button className="chip" onClick={() => setSel(new Set())}>none</button>
           <button className="chip" onClick={prepare} disabled={!!busy} title={T.prepare}>prepare titles</button>
-          {settings?.spend && <span className="chip" title={`${settings.spend.calls} calls`}>${settings.spend.today.toFixed(2)} today · ${settings.spend.total.toFixed(2)} total</span>}
+
           {settings && (
             <select className="chip" value={`${settings.provider}|${settings.model}`} onChange={async (e) => {
               const [provider, model] = e.target.value.split('|');
@@ -113,9 +120,9 @@ export default function Writer() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="t" onClick={() => setOpen(r)}>{r.title_en || r.title_fr}</div>
               <div className="s">
-                <span className={`dot ${cls(r.status_en)}`}><b />EN</span>
-                <span className={`dot ${cls(r.status_fr)}`}><b />FR</span>
-                <span className={`dot ${r.cover === 'done' ? 'written' : ''}`}><b />cover</span>
+                <span className={`dot ${cls(r.status_en)}`} title={D(r.status_en, 'English')}><b />EN</span>
+                <span className={`dot ${cls(r.status_fr)}`} title={D(r.status_fr, 'French')}><b />FR</span>
+                <span className={`dot ${r.cover === 'done' ? 'written' : ''}`} title={r.cover === 'done' ? 'Cover image generated' : 'No cover yet'}><b />cover</span>
                 <span>{r.category}</span><span>{r.length}w</span>
                 <button className="chip" onClick={() => setOpen(r)}>open</button>
               </div>
@@ -126,11 +133,15 @@ export default function Writer() {
         ))}
       </div>
 
+      </div>
+      <button className={`logbubble${busy || jobs.length ? ' live' : ''}`} onClick={() => setShowLog((v) => !v)} title="Activity and costs">
+        {busy ? `${progress || '…'} · ` : ''}{settings?.spend ? `$${settings.spend.today.toFixed(2)} today` : 'log'}
+      </button>
       <div className={`log${showLog ? ' open' : ''}`}>
         <button className="close chip" onClick={() => setShowLog(false)}>close</button>
+        {settings?.spend ? `$${settings.spend.today.toFixed(2)} today · $${settings.spend.total.toFixed(2)} total · ${settings.spend.calls} calls\n` : ''}
         {jobs.length ? `${jobs.length} batch job(s) running — results arrive on their own\n` : ''}
         {logs.map((l) => `${new Date(l.at).toLocaleTimeString()}  ${l.line}`).join('\n') || 'no activity yet'}
-      </div>
       </div>
 
       <div className="actions">
@@ -142,7 +153,8 @@ export default function Writer() {
         <button className="gold" disabled={!!busy} title={T.batchFr} onClick={() => post('/api/batch', { ids: ids(), mode: 'fr' }, 'batchfr', 0)}>Batch FR ½</button>
         <button className="gold" disabled={!!busy} title={T.covers} onClick={() => post('/api/covers', { ids: ids() }, 'covers', 4)}>Covers</button>
         <button disabled={!!busy} title={T.publish} onClick={() => { if (confirm(`Publish ${sel.size} article(s) to the site repo?`)) post('/api/publish', { ids: ids() }, 'publish', 5); }}>Publish</button>
-        <button className="logbtn" onClick={() => setShowLog(true)}>log{logs.length ? ` (${logs.length})` : ''}</button>
+        {busy && <button onClick={() => { pauseRef.current = !pauseRef.current; setPaused(pauseRef.current); }} title="Pause after the current pair; resume where it stopped">{paused ? 'Resume' : 'Pause'}</button>}
+        {busy && <button onClick={() => { if (confirm('Stop after the current pair? Finished articles are kept.')) { stopRef.current = true; pauseRef.current = false; } }} title="Stop the run after the pair in progress">Stop</button>}
         <button title="What each button does" onClick={() => setHelp(true)}>?</button>
       </div>
 
@@ -164,7 +176,8 @@ export default function Writer() {
 
 function Sheet({ row, close }) {
   const [data, setData] = useState(null); const [lang, setLang] = useState('en'); const [edit, setEdit] = useState(false); const [body, setBody] = useState('');
-  useEffect(() => { fetch(`/api/article?id=${row.id}`).then((r) => r.json()).then((d) => { setData(d); const a = d.articles.find((x) => x.lang === 'en') || d.articles[0]; setBody(a?.body || ''); }); }, [row.id]);
+  const load = () => fetch(`/api/article?id=${row.id}`).then((r) => r.json()).then((d) => { setData(d); });
+  useEffect(() => { load(); const t = setInterval(load, 8000); return () => clearInterval(t); }, [row.id]);
   const art = data?.articles.find((a) => a.lang === lang);
   useEffect(() => { setBody(art?.body || ''); setEdit(false); }, [lang, data]);
   async function save() {
@@ -185,7 +198,7 @@ function Sheet({ row, close }) {
         <button className="chip" onClick={async () => { await fetch('/api/publish', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids: [row.id] }) }); alert('published'); }}>publish</button>
       </div>
       {art?.warnings && <p style={{ color: '#c0392b', font: '12px DM Mono, monospace', padding: '0 1rem' }}>⚠ {art.warnings}</p>}
-      {!art && <p className="muted" style={{ padding: '0 1rem' }}>Not written yet.</p>}
+      {!art && <p className="muted" style={{ padding: '0 1rem' }}>{row[`status_${lang}`] === 'queued' ? 'In a batch — this page refreshes itself when it lands.' : 'Not written yet. This page refreshes on its own every few seconds.'}</p>}
       {art && (edit ? <textarea value={body} onChange={(e) => setBody(e.target.value)} /> : <pre>{art.body}</pre>)}
       <p className="muted" style={{ padding: '1rem', font: '12px DM Mono, monospace' }}>{data?.cover ? `cover ready${data.cover.published_at ? ' · published' : ''} · ` : ''}{data ? `cost so far $${Number(data.cost || 0).toFixed(3)}` : ''}</p>
     </div>
